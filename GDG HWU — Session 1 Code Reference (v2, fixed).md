@@ -1,23 +1,4 @@
 # GDG HWU — Session 1 Code Reference (v2, post-fix)
-
-**For facilitators.** Every code block below is generated from the same source files as `GDG_HWU_RAG_Starter.ipynb`, so the doc and the notebook cannot drift apart. These blocks were also run against a mock Gemini client (transient failures, rate-limit bursts, outages, mismatched counts) before release.
-
-## What changed after the first run, and why
-
-| Problem seen | Root cause | Fix |
-| --- | --- | --- |
-| Errors importing the demo file | Opening a notebook from GitHub in Colab brings **only the notebook** — `sample_dataset.txt` was never in the runtime | The demo text now lives **inside the notebook** (`DEMO_TEXT`). Wikipedia failures fall back to it automatically. New `"upload"` source type for students' own files |
-| Retrieval returning wrong chunks | After 3 failed retries (only 15 s of waiting) the old `embed_texts` **silently skipped the batch** yet still printed "Embedded 264/264". Every later vector then belonged to the wrong chunk. Reproduced in testing: 264 chunks, 164 vectors, wrong results | Retries now back off 5→80 s and **stop with a clear error** instead of skipping. Counts are checked at every batch and in `retrieve()` |
-| Chunks starting with "onstruction of the…" | Fixed-size slicing cut words in half | Chunker backs up to the nearest space; chunks always start and end on whole words |
-| Lower-quality matches | Chunks and questions were embedded with no task type | Chunks use `RETRIEVAL_DOCUMENT`, questions use `RETRIEVAL_QUERY` |
-| Checkpoint ignored after a restart | Python's `hash()` changes between sessions | Fingerprint uses `md5` |
-| Possible Colab install conflicts | `numpy` was being re-installed over Colab's copy | `numpy` and the `wikipedia` package removed from the install; Wikipedia is read via its API with `requests` |
-| Private Google Docs failing mysteriously | Google returns a sign-in **HTML page** (status 200) instead of an error | Detected, with a message telling students to share as "Anyone with the link can view" |
-
-**Correction to the earlier guide:** `gemini-embedding-001` returns **3072** numbers per chunk by default, not 768. The matrix shape you'll see is `(number_of_chunks, 3072)`.
-
-**Design decision:** retrieval uses plain NumPy, not Chroma/FAISS. At this scale it takes milliseconds, and the loop inside `retrieve()` is the lesson a vector database would hide. Show Chroma as a 5-minute aside at most.
-
 ---
 
 ## 0. Install
@@ -178,7 +159,7 @@ def load_text(source_type, source=None):
     return text
 ```
 
-**Explain:** `load_text()` is the only place that cares what the content is; everything after sees one string. No API calls happen here. Size is checked *before* anything touches Gemini, and warnings are printed, never swallowed.
+**Explaination:** `load_text()` is the only place that cares what the content is; everything after sees one string. Size is checked *before* anything touches Gemini, and warnings are printed, never swallowed.
 
 ```python
 try:
@@ -229,7 +210,7 @@ print("\n--- Example chunk ---\n")
 print(demo_chunks[0])
 ```
 
-**Explain:** two ideas. (1) Chunks are \~500 characters so retrieval is precise. (2) `start = max(end - overlap, ...)` steps back so neighbouring chunks share text — a fact on a boundary is whole in at least one chunk. The word-snapping lines just stop words being cut in half. No API call anywhere in this function.
+**Explaination:** two ideas. (1) Chunks are \~500 characters so retrieval is precise. (2) `start = max(end - overlap, ...)` steps back so neighbouring chunks share text — a fact on a boundary is whole in at least one chunk. The word-snapping lines just stop words being cut in half.
 
 ## 4. Embedding
 
@@ -307,8 +288,6 @@ demo_embeddings = embed_texts(client, demo_chunks, checkpoint_path="demo_checkpo
 print(f"\n✅ Done. Embedding matrix shape: {demo_embeddings.shape}  (chunks x numbers-per-chunk)")
 ```
 
-**Explain:** this is the **only** step that calls Gemini (besides the one query per search).
-
 - `MAX_BATCH = 100`: a few hundred chunks = a handful of calls.
 - `_call_embed`: retries with growing waits (rate limits need real waits), then raises. It never skips a batch.
 - The length check: if the number of vectors ever differs from the number of chunks we stop, because misaligned vectors return the *wrong text*.
@@ -356,7 +335,6 @@ query = "Who won the 2018 FIFA World Cup?"
 show(retrieve(client, query, demo_chunks, demo_embeddings, top_k=3))
 ```
 
-**Explain, slowly, this is the payoff:**
 
 1. `cosine_similarity`: how closely two vectors point the same way. (`+ 1e-10` only avoids dividing by zero; skip it unless asked.)
 2. The question is embedded with the same model, but as `RETRIEVAL_QUERY`.
@@ -364,7 +342,7 @@ show(retrieve(client, query, demo_chunks, demo_embeddings, top_k=3))
 4. Sort high→low, keep the top `top_k`.
 5. Out-of-scope question → low scores everywhere = the system saying "I don't know." A feature.
 
-## 6. Part 2 — same functions, student's topic
+## 6. Part 2 — same functions, chosen topic
 
 ```python
 # ---- EDIT THESE TWO LINES ----
@@ -387,7 +365,7 @@ my_query = "Ask your bot a question about your own topic"
 show(retrieve(client, my_query, my_chunks, my_embeddings, top_k=3))
 ```
 
-**Say explicitly:** *"Nothing new just ran — the same functions, pointed at a different topic."*
+**NOTE:** *"Nothing new just ran — the same functions, pointed at a different topic."*
 
 ---
 
@@ -407,7 +385,6 @@ show(retrieve(client, my_query, my_chunks, my_embeddings, top_k=3))
 | --- | --- | --- |
 | `API key not valid` at Step 1 | Typo or wrong key | Re-run the cell, paste again |
 | `429` / `RESOURCE_EXHAUSTED` | Free-tier rate limit | Nothing — it retries itself. If it stops after 5 tries, wait a minute and re-run: the checkpoint resumes |
-| `Couldn't read that Google Doc` | Doc isn't public | Share → "Anyone with the link can view" |
 | `No text could be extracted` | Scanned PDF | Use a text-based PDF, or copy-paste into `"paste"` |
 | `No Wikipedia article found` / `disambiguation` | Wrong title | Use the exact article title from the URL |
 | `NameError: ... not defined` | A cell above was skipped | Runtime → Run all |
